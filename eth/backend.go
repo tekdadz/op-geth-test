@@ -258,7 +258,10 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	txPools := []txpool.SubPool{legacyPool}
 	if !eth.BlockChain().Config().IsOptimism() {
 		blobPool := blobpool.New(config.BlobPool, eth.blockchain)
+		log.Info("==================(is not optimism) Blob Pool in backend=================", blobPool.Pending(true))
 		txPools = append(txPools, blobPool)
+	} else {
+		log.Info("==================Legacy Pool in backend==================", legacyPool.Pending(true))
 	}
 	eth.txPool, err = txpool.New(new(big.Int).SetUint64(config.TxPool.PriceLimit), eth.blockchain, txPools)
 	if err != nil {
