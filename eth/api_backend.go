@@ -296,7 +296,7 @@ func (b *EthAPIBackend) SubscribeLogsEvent(ch chan<- []*types.Log) event.Subscri
 }
 
 func (b *EthAPIBackend) SendTx(ctx context.Context, signedTx *types.Transaction) error {
-	log.Info("SendTx is called")
+	fmt.Println("SendTx is called")
 
 	if b.ChainConfig().IsOptimism() && signedTx.Type() == types.BlobTxType {
 		return types.ErrTxTypeNotSupported
@@ -321,6 +321,7 @@ func (b *EthAPIBackend) SendTx(ctx context.Context, signedTx *types.Transaction)
 	if b.disableTxPool {
 		return nil
 	}
+	fmt.Println("===========================success=========================")
 	return b.eth.txPool.Add([]*types.Transaction{signedTx}, true, false)[0]
 }
 
