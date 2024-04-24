@@ -30,6 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
@@ -146,6 +147,20 @@ func (payload *Payload) update(r *newPayloadResult, elapsed time.Duration) {
 		payload.fullFees = r.fees
 		payload.sidecars = r.sidecars
 	}
+
+	feesInEther := new(big.Float).Quo(new(big.Float).SetInt(r.fees), big.NewFloat(params.Ether))
+	log.Info("Updated payload",
+		"id", payload.id,
+		"number", r.block.NumberU64(),
+		"hash", r.block.Hash(),
+		"txs", len(r.block.Transactions()),
+		"withdrawals", len(r.block.Withdrawals()),
+		"gas", r.block.GasUsed(),
+		"fees", feesInEther,
+		"root", r.block.Root(),
+		"elapsed", common.PrettyDuration(elapsed),
+	)
+
 }
 
 // Resolve returns the latest built payload and also terminates the background

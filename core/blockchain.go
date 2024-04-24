@@ -2301,6 +2301,7 @@ func (bc *BlockChain) SetCanonical(head *types.Block) (common.Hash, error) {
 		log.Info("Recovered head state", "number", head.Number(), "hash", head.Hash())
 	}
 	// Run the reorg if necessary and set the given block as new head.
+	start := time.Now()
 	if head.ParentHash() != bc.CurrentBlock().Hash() {
 		if err := bc.reorg(bc.CurrentBlock(), head); err != nil {
 			return common.Hash{}, err
@@ -2315,6 +2316,17 @@ func (bc *BlockChain) SetCanonical(head *types.Block) (common.Hash, error) {
 		bc.logsFeed.Send(logs)
 	}
 	bc.chainHeadFeed.Send(ChainHeadEvent{Block: head})
+
+	context := []interface{}{
+		"number", head.Number(),
+		"hash", head.Hash(),
+		"root", head.Root(),
+		"elapsed", time.Since(start),
+	}
+	if timestamp := time.Unix(int64(head.Time()), 0); time.Since(timestamp) > time.Minute {
+		context = append(context, []interface{}{"age", common.PrettyAge(timestamp)}...)
+	}
+	log.Info("Chain head was updated", context...)
 
 	return head.Hash(), nil
 }
