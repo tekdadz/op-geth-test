@@ -256,10 +256,10 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	legacyPool := legacypool.New(config.TxPool, eth.blockchain)
 
 	txPools := []txpool.SubPool{legacyPool}
-	// if !eth.BlockChain().Config().IsOptimism() {
-	blobPool := blobpool.New(config.BlobPool, eth.blockchain)
-	txPools = append(txPools, blobPool)
-	// }
+	if !eth.BlockChain().Config().IsOptimism() {
+		blobPool := blobpool.New(config.BlobPool, eth.blockchain)
+		txPools = append(txPools, blobPool)
+	}
 	eth.txPool, err = txpool.New(new(big.Int).SetUint64(config.TxPool.PriceLimit), eth.blockchain, txPools)
 	if err != nil {
 		return nil, err
@@ -374,7 +374,7 @@ func (s *Ethereum) APIs() []rpc.API {
 			Service:   NewMinerAPI(s),
 		}, {
 			Namespace: "eth",
-			Service:   downloader.NewDownloaderAPI(s.handler.downloader, s.eventMux),
+			Service:   downloader.NewDownloaderAPI(s.handler.downloader, s.blockchain, s.eventMux),
 		}, {
 			Namespace: "admin",
 			Service:   NewAdminAPI(s),

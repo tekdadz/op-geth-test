@@ -115,7 +115,6 @@ func (api *FilterAPI) timeoutLoop(timeout time.Duration) {
 // It is part of the filter package because this filter can be used through the
 // `eth_getFilterChanges` polling method that is also used for log filters.
 func (api *FilterAPI) NewPendingTransactionFilter(fullTx *bool) rpc.ID {
-	fmt.Printf("API Pending ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~.\n");
 	var (
 		pendingTxs   = make(chan []*types.Transaction)
 		pendingTxSub = api.events.SubscribePendingTxs(pendingTxs)
@@ -150,7 +149,6 @@ func (api *FilterAPI) NewPendingTransactionFilter(fullTx *bool) rpc.ID {
 // transaction enters the transaction pool. If fullTx is true the full tx is
 // sent to the client, otherwise the hash is sent.
 func (api *FilterAPI) NewPendingTransactions(ctx context.Context, fullTx *bool) (*rpc.Subscription, error) {
-	fmt.Printf("API Pending.\n");
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
@@ -161,6 +159,8 @@ func (api *FilterAPI) NewPendingTransactions(ctx context.Context, fullTx *bool) 
 	go func() {
 		txs := make(chan []*types.Transaction, 128)
 		pendingTxSub := api.events.SubscribePendingTxs(txs)
+		defer pendingTxSub.Unsubscribe()
+
 		chainConfig := api.sys.backend.ChainConfig()
 
 		for {
@@ -178,10 +178,8 @@ func (api *FilterAPI) NewPendingTransactions(ctx context.Context, fullTx *bool) 
 					}
 				}
 			case <-rpcSub.Err():
-				pendingTxSub.Unsubscribe()
 				return
 			case <-notifier.Closed():
-				pendingTxSub.Unsubscribe()
 				return
 			}
 		}
@@ -235,16 +233,15 @@ func (api *FilterAPI) NewHeads(ctx context.Context) (*rpc.Subscription, error) {
 	go func() {
 		headers := make(chan *types.Header)
 		headersSub := api.events.SubscribeNewHeads(headers)
+		defer headersSub.Unsubscribe()
 
 		for {
 			select {
 			case h := <-headers:
 				notifier.Notify(rpcSub.ID, h)
 			case <-rpcSub.Err():
-				headersSub.Unsubscribe()
 				return
 			case <-notifier.Closed():
-				headersSub.Unsubscribe()
 				return
 			}
 		}
@@ -271,6 +268,7 @@ func (api *FilterAPI) Logs(ctx context.Context, crit FilterCriteria) (*rpc.Subsc
 	}
 
 	go func() {
+		defer logsSub.Unsubscribe()
 		for {
 			select {
 			case logs := <-matchedLogs:
@@ -279,10 +277,8 @@ func (api *FilterAPI) Logs(ctx context.Context, crit FilterCriteria) (*rpc.Subsc
 					notifier.Notify(rpcSub.ID, &log)
 				}
 			case <-rpcSub.Err(): // client send an unsubscribe request
-				logsSub.Unsubscribe()
 				return
 			case <-notifier.Closed(): // connection dropped
-				logsSub.Unsubscribe()
 				return
 			}
 		}
@@ -448,8 +444,6 @@ func (api *FilterAPI) GetFilterChanges(id rpc.ID) (interface{}, error) {
 			f.hashes = nil
 			return returnHashes(hashes), nil
 		case PendingTransactionsSubscription:
-
-			fmt.Printf("PendingTransactionsSubscription#################@@@@@@@@@@@@@@@@@@@.%d \n", len(f.txs))
 			if f.fullTx {
 				txs := make([]*ethapi.RPCTransaction, 0, len(f.txs))
 				for _, tx := range f.txs {

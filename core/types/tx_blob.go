@@ -61,9 +61,10 @@ type BlobTxSidecar struct {
 
 // BlobHashes computes the blob hashes of the given blobs.
 func (sc *BlobTxSidecar) BlobHashes() []common.Hash {
+	hasher := sha256.New()
 	h := make([]common.Hash, len(sc.Commitments))
 	for i := range sc.Blobs {
-		h[i] = blobHash(&sc.Commitments[i])
+		h[i] = kzg4844.CalcBlobHashV1(hasher, &sc.Commitments[i])
 	}
 	return h
 }
@@ -72,15 +73,16 @@ func (sc *BlobTxSidecar) BlobHashes() []common.Hash {
 // encoded size of the BlobTxSidecar, it's just a helper for tx.Size().
 func (sc *BlobTxSidecar) encodedSize() uint64 {
 	var blobs, commitments, proofs uint64
+	for i := range sc.Proofs {
+		proofs += rlp.BytesSize(sc.Proofs[i][:])
+	}
 	for i := range sc.Blobs {
 		blobs += rlp.BytesSize(sc.Blobs[i][:])
 	}
 	for i := range sc.Commitments {
 		commitments += rlp.BytesSize(sc.Commitments[i][:])
 	}
-	for i := range sc.Proofs {
-		proofs += rlp.BytesSize(sc.Proofs[i][:])
-	}
+
 	return rlp.ListSize(blobs) + rlp.ListSize(commitments) + rlp.ListSize(proofs)
 }
 
@@ -235,13 +237,4 @@ func (tx *BlobTx) decode(input []byte) error {
 		Proofs:      inner.Proofs,
 	}
 	return nil
-}
-
-func blobHash(commit *kzg4844.Commitment) common.Hash {
-	hasher := sha256.New()
-	hasher.Write(commit[:])
-	var vhash common.Hash
-	hasher.Sum(vhash[:0])
-	vhash[0] = params.BlobTxHashVersion
-	return vhash
 }

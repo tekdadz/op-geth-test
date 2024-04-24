@@ -465,6 +465,12 @@ var (
 		Value:    ethconfig.Defaults.Miner.GasCeil,
 		Category: flags.MinerCategory,
 	}
+	MinerEffectiveGasLimitFlag = &cli.Uint64Flag{
+		Name:     "miner.effectivegaslimit",
+		Usage:    "If non-zero, an effective gas limit to apply in addition to the block header gaslimit.",
+		Value:    0,
+		Category: flags.MinerCategory,
+	}
 	MinerGasPriceFlag = &flags.BigFlag{
 		Name:     "miner.gasprice",
 		Usage:    "Minimum gas price for mining a transaction",
@@ -1094,13 +1100,6 @@ func setBootstrapNodes(ctx *cli.Context, cfg *p2p.Config) {
 			urls = params.SepoliaBootnodes
 		case ctx.Bool(GoerliFlag.Name):
 			urls = params.GoerliBootnodes
-		case ctx.IsSet(OPNetworkFlag.Name):
-			network := ctx.String(OPNetworkFlag.Name)
-			if strings.Contains(strings.ToLower(network), "mainnet") {
-				urls = params.OPMainnetBootnodes
-			} else {
-				urls = params.OPSepoliaBootnodes
-			}
 		}
 	}
 	cfg.BootstrapNodes = mustParseBootnodes(urls)
@@ -1133,9 +1132,9 @@ func setBootstrapNodesV5(ctx *cli.Context, cfg *p2p.Config) {
 	case ctx.IsSet(OPNetworkFlag.Name):
 		network := ctx.String(OPNetworkFlag.Name)
 		if strings.Contains(strings.ToLower(network), "mainnet") {
-			urls = append(urls, params.OPMainnetBootnodes...)
+			urls = params.V5OPBootnodes
 		} else {
-			urls = append(urls, params.OPSepoliaBootnodes...)
+			urls = params.V5OPTestnetBootnodes
 		}
 	}
 
@@ -1602,6 +1601,11 @@ func setTxPool(ctx *cli.Context, cfg *legacypool.Config) {
 	if ctx.IsSet(TxPoolLifetimeFlag.Name) {
 		cfg.Lifetime = ctx.Duration(TxPoolLifetimeFlag.Name)
 	}
+	if ctx.IsSet(MinerEffectiveGasLimitFlag.Name) {
+		// While technically this is a miner config parameter, we also want the txpool to enforce
+		// it to avoid accepting transactions that can never be included in a block.
+		cfg.EffectiveGasCeil = ctx.Uint64(MinerEffectiveGasLimitFlag.Name)
+	}
 }
 
 func setMiner(ctx *cli.Context, cfg *miner.Config) {
@@ -1610,6 +1614,9 @@ func setMiner(ctx *cli.Context, cfg *miner.Config) {
 	}
 	if ctx.IsSet(MinerGasLimitFlag.Name) {
 		cfg.GasCeil = ctx.Uint64(MinerGasLimitFlag.Name)
+	}
+	if ctx.IsSet(MinerEffectiveGasLimitFlag.Name) {
+		cfg.EffectiveGasCeil = ctx.Uint64(MinerEffectiveGasLimitFlag.Name)
 	}
 	if ctx.IsSet(MinerGasPriceFlag.Name) {
 		cfg.GasPrice = flags.GlobalBig(ctx, MinerGasPriceFlag.Name)

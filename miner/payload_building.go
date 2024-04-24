@@ -30,7 +30,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
@@ -38,12 +37,13 @@ import (
 // Check engine-api specification for more details.
 // https://github.com/ethereum/execution-apis/blob/main/src/engine/cancun.md#payloadattributesv3
 type BuildPayloadArgs struct {
-	Parent       common.Hash       // The parent block to build payload on top
-	Timestamp    uint64            // The provided timestamp of generated payload
-	FeeRecipient common.Address    // The provided recipient address for collecting transaction fee
-	Random       common.Hash       // The provided randomness value
-	Withdrawals  types.Withdrawals // The provided withdrawals
-	BeaconRoot   *common.Hash      // The provided beaconRoot (Cancun)
+	Parent       common.Hash           // The parent block to build payload on top
+	Timestamp    uint64                // The provided timestamp of generated payload
+	FeeRecipient common.Address        // The provided recipient address for collecting transaction fee
+	Random       common.Hash           // The provided randomness value
+	Withdrawals  types.Withdrawals     // The provided withdrawals
+	BeaconRoot   *common.Hash          // The provided beaconRoot (Cancun)
+	Version      engine.PayloadVersion // Versioning byte for payload id calculation.
 
 	NoTxPool     bool                 // Optimism addition: option to disable tx pool contents from being included
 	Transactions []*types.Transaction // Optimism addition: txs forced into the block via engine API
@@ -77,6 +77,7 @@ func (args *BuildPayloadArgs) Id() engine.PayloadID {
 
 	var out engine.PayloadID
 	copy(out[:], hasher.Sum(nil)[:8])
+	out[0] = byte(args.Version)
 	return out
 }
 
@@ -103,13 +104,11 @@ type Payload struct {
 // newPayload initializes the payload object.
 func newPayload(empty *types.Block, id engine.PayloadID) *Payload {
 	payload := &Payload{
-		id:    id,
-		empty: empty,
-		stop:  make(chan struct{}),
-
+		id:        id,
+		empty:     empty,
+		stop:      make(chan struct{}),
 		interrupt: new(atomic.Int32),
 	}
-	log.Info("Starting work on payload", "id", payload.id)
 	payload.cond = sync.NewCond(&payload.lock)
 	return payload
 }
@@ -146,19 +145,6 @@ func (payload *Payload) update(r *newPayloadResult, elapsed time.Duration) {
 		payload.full = r.block
 		payload.fullFees = r.fees
 		payload.sidecars = r.sidecars
-
-		feesInEther := new(big.Float).Quo(new(big.Float).SetInt(r.fees), big.NewFloat(params.Ether))
-		log.Info("Updated payload",
-			"id", payload.id,
-			"number", r.block.NumberU64(),
-			"hash", r.block.Hash(),
-			"txs", len(r.block.Transactions()),
-			"withdrawals", len(r.block.Withdrawals()),
-			"gas", r.block.GasUsed(),
-			"fees", feesInEther,
-			"root", r.block.Root(),
-			"elapsed", common.PrettyDuration(elapsed),
-		)
 	}
 }
 
@@ -254,7 +240,9 @@ func (payload *Payload) stopBuilding() {
 
 // buildPayload builds the payload according to the provided parameters.
 func (w *worker) buildPayload(args *BuildPayloadArgs) (*Payload, error) {
-	fmt.Println("===========op-geth: building payload============================", args)
+	for i, tx := range args.Transactions {
+		fmt.Println("New pending tx: ", i, "-", tx.Hash())
+	}
 	if args.NoTxPool { // don't start the background payload updating job if there is no tx pool to pull from
 		// Build the initial version with no transaction included. It should be fast
 		// enough to run. The empty payload can at least make sure there is something
@@ -316,7 +304,6 @@ func (w *worker) buildPayload(args *BuildPayloadArgs) (*Payload, error) {
 		timer := time.NewTimer(0)
 		defer timer.Stop()
 
-		start := time.Now()
 		// Setup the timer for terminating the payload building process as determined
 		// by validateParams.
 		endTimer := time.NewTimer(blockTime)
@@ -324,12 +311,7 @@ func (w *worker) buildPayload(args *BuildPayloadArgs) (*Payload, error) {
 
 		timeout := time.Now().Add(blockTime)
 
-		stopReason := "delivery"
 		defer func() {
-			log.Info("Stopping work on payload",
-				"id", payload.id,
-				"reason", stopReason,
-				"elapsed", time.Since(start).Milliseconds())
 		}()
 
 		updatePayload := func() time.Duration {
@@ -361,14 +343,12 @@ func (w *worker) buildPayload(args *BuildPayloadArgs) (*Payload, error) {
 				// Assuming last payload building duration as lower bound for next one,
 				// skip new update if we're too close to the timeout anyways.
 				if lastDuration > 0 && time.Now().Add(lastDuration).After(timeout) {
-					stopReason = "near-timeout"
 					return
 				}
 				lastDuration = updatePayload()
 			case <-payload.stop:
 				return
 			case <-endTimer.C:
-				stopReason = "timeout"
 				return
 			}
 		}

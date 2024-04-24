@@ -1070,9 +1070,7 @@ func (w *worker) prepareWork(genParams *generateParams) (*environment, error) {
 // into the given sealing block. The transaction selection and ordering strategy can
 // be customized with the plugin in the future.
 func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) error {
-
 	pending := w.eth.TxPool().Pending(true)
-	fmt.Println("==================fillTransaction: pending:::::===================", pending)
 	// Split the pending transactions into locals and remotes.
 	localTxs, remoteTxs := make(map[common.Address][]*txpool.LazyTransaction), pending
 	for _, account := range w.eth.TxPool().Locals() {
@@ -1106,7 +1104,11 @@ func (w *worker) generateWork(genParams *generateParams) *newPayloadResult {
 	}
 	defer work.discard()
 	if work.gasPool == nil {
-		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
+		gasLimit := w.config.EffectiveGasCeil
+		if gasLimit == 0 || gasLimit > work.header.GasLimit {
+			gasLimit = work.header.GasLimit
+		}
+		work.gasPool = new(core.GasPool).AddGas(gasLimit)
 	}
 
 	misc.EnsureCreate2Deployer(w.chainConfig, work.header.Time, work.state)

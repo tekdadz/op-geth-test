@@ -117,12 +117,13 @@ func (ct *clientTree) gcLinks() {
 
 func (ct *clientTree) syncNextLink(ctx context.Context) error {
 	hash := ct.links.missing[0]
+
 	e, err := ct.links.resolveNext(ctx, hash)
 	if err != nil {
 		return err
 	}
+	//link missing
 	ct.links.missing = ct.links.missing[1:]
-
 	if dest, ok := e.(*linkEntry); ok {
 		ct.lc.addLink(ct.loc.str, dest.str)
 		ct.curLinks[dest.str] = struct{}{}
@@ -247,10 +248,13 @@ func (ts *subtreeSync) resolveAll(dest map[string]entry) error {
 		hash := ts.missing[0]
 		ctx, cancel := context.WithTimeout(context.Background(), ts.c.cfg.Timeout)
 		e, err := ts.resolveNext(ctx, hash)
+
 		cancel()
+
 		if err != nil {
 			return err
 		}
+
 		dest[hash] = e
 		ts.missing = ts.missing[1:]
 	}

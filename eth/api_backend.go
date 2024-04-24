@@ -265,7 +265,7 @@ func (b *EthAPIBackend) GetEVM(ctx context.Context, msg *core.Message, state *st
 	} else {
 		context = core.NewEVMBlockContext(header, b.eth.BlockChain(), nil, b.eth.blockchain.Config(), state)
 	}
-	return vm.NewEVM(context, txContext, state, b.eth.blockchain.Config(), *vmConfig)
+	return vm.NewEVM(context, txContext, state, b.ChainConfig(), *vmConfig)
 }
 
 func (b *EthAPIBackend) SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEvent) event.Subscription {
@@ -296,7 +296,6 @@ func (b *EthAPIBackend) SubscribeLogsEvent(ch chan<- []*types.Log) event.Subscri
 }
 
 func (b *EthAPIBackend) SendTx(ctx context.Context, signedTx *types.Transaction) error {
-	fmt.Println("SendTx is called")
 
 	if b.ChainConfig().IsOptimism() && signedTx.Type() == types.BlobTxType {
 		return types.ErrTxTypeNotSupported
@@ -321,7 +320,6 @@ func (b *EthAPIBackend) SendTx(ctx context.Context, signedTx *types.Transaction)
 	if b.disableTxPool {
 		return nil
 	}
-	fmt.Println("===========================success=========================")
 	return b.eth.txPool.Add([]*types.Transaction{signedTx}, true, false)[0]
 }
 
@@ -342,9 +340,25 @@ func (b *EthAPIBackend) GetPoolTransaction(hash common.Hash) *types.Transaction 
 	return b.eth.txPool.Get(hash)
 }
 
-func (b *EthAPIBackend) GetTransaction(ctx context.Context, txHash common.Hash) (*types.Transaction, common.Hash, uint64, uint64, error) {
-	tx, blockHash, blockNumber, index := rawdb.ReadTransaction(b.eth.ChainDb(), txHash)
-	return tx, blockHash, blockNumber, index, nil
+// GetTransaction retrieves the lookup along with the transaction itself associate
+// with the given transaction hash.
+//
+// An error will be returned if the transaction is not found, and background
+// indexing for transactions is still in progress. The error is used to indicate the
+// scenario explicitly that the transaction might be reachable shortly.
+//
+// A null will be returned in the transaction is not found and background transaction
+// indexing is already finished. The transaction is not existent from the perspective
+// of node.
+func (b *EthAPIBackend) GetTransaction(ctx context.Context, txHash common.Hash) (bool, *types.Transaction, common.Hash, uint64, uint64, error) {
+	lookup, tx, err := b.eth.blockchain.GetTransactionLookup(txHash)
+	if err != nil {
+		return false, nil, common.Hash{}, 0, 0, err
+	}
+	if lookup == nil || tx == nil {
+		return false, nil, common.Hash{}, 0, 0, nil
+	}
+	return true, tx, lookup.BlockHash, lookup.BlockIndex, lookup.Index, nil
 }
 
 func (b *EthAPIBackend) GetPoolNonce(ctx context.Context, addr common.Address) (uint64, error) {
@@ -372,7 +386,12 @@ func (b *EthAPIBackend) SubscribeNewTxsEvent(ch chan<- core.NewTxsEvent) event.S
 }
 
 func (b *EthAPIBackend) SyncProgress() ethereum.SyncProgress {
-	return b.eth.Downloader().Progress()
+	prog := b.eth.Downloader().Progress()
+	if txProg, err := b.eth.blockchain.TxIndexProgress(); err == nil {
+		prog.TxIndexFinishedBlocks = txProg.Indexed
+		prog.TxIndexRemainingBlocks = txProg.Remaining
+	}
+	return prog
 }
 
 func (b *EthAPIBackend) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
@@ -442,18 +461,18 @@ func (b *EthAPIBackend) StartMining() error {
 	return b.eth.StartMining()
 }
 
-func (b *EthAPIBackend) StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, readOnly bool, preferDisk bool) (*state.StateDB, tracers.StateReleaseFunc, error) {
-	return b.eth.stateAtBlock(ctx, block, reexec, base, readOnly, preferDisk)
-}
-
-func (b *EthAPIBackend) StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, *state.StateDB, tracers.StateReleaseFunc, error) {
-	return b.eth.stateAtTransaction(ctx, block, txIndex, reexec)
-}
-
 func (b *EthAPIBackend) HistoricalRPCService() *rpc.Client {
 	return b.eth.historicalRPCService
 }
 
 func (b *EthAPIBackend) Genesis() *types.Block {
 	return b.eth.blockchain.Genesis()
+}
+
+func (b *EthAPIBackend) StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, readOnly bool, preferDisk bool) (*state.StateDB, tracers.StateReleaseFunc, error) {
+	return b.eth.stateAtBlock(ctx, block, reexec, base, readOnly, preferDisk)
+}
+
+func (b *EthAPIBackend) StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, *state.StateDB, tracers.StateReleaseFunc, error) {
+	return b.eth.stateAtTransaction(ctx, block, txIndex, reexec)
 }
